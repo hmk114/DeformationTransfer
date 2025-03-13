@@ -1,0 +1,5 @@
+build
+*.obj
+.vscode
+src/deps/eigen-3.4.0
+src/deps/OpenMesh-11.0.0

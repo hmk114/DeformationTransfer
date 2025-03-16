@@ -67,7 +67,17 @@ void execute_as_async(F &&func, V &&view) {
                  }) |
                  sr::to<std::vector>();
 
-  sr::for_each(futures, [](auto &future) { future.get(); });
+  std::vector<std::exception_ptr> excs;
+  sr::for_each(futures, [&](auto &future) {
+    try {
+      future.get();
+    } catch (const std::exception &e) {
+      excs.push_back(std::current_exception());
+    }
+  });
+  if (!excs.empty()) {
+    std::rethrow_exception(excs.front());
+  }
 }
 
 auto calc_V_matrix(const Mesh &mesh, const FaceHandle &face) {
@@ -103,6 +113,7 @@ Mesh deform_trans(const Mesh &s0, const Mesh &s1, const Mesh &t0) {
   }
 
   const size_t N = s0.n_vertices(), M = s0.n_faces();
+  std::println("Vertices: {}, Faces: {}", N, M);
 
   MatX S(3, 3 * M);
 
@@ -217,7 +228,7 @@ int main(int argc, char **argv) {
       throw std::runtime_error(
           "Please specify input s0, s1 and t0, output t1.");
     }
-    
+
     Mesh s0, s1, t0;
     if (!read_mesh(s0, argv[1]) || !read_mesh(s1, argv[2]) ||
         !read_mesh(t0, argv[3])) {

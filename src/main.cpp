@@ -1,3 +1,4 @@
+#include "OpenMesh/Core/Geometry/Vector11T.hh"
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <OpenMesh/Core/IO/MeshIO.hh>
@@ -50,6 +51,27 @@ struct TimedScope {
     std::println("{} took {} ms", name, elapsed.count());
   }
 };
+
+inline OpenMesh::Vec3f get_mesh_center(const Mesh &mesh) {
+  if (mesh.n_vertices() == 0) {
+    return {0, 0, 0};
+  }
+
+  auto min = mesh.point(*mesh.vertices_begin()), max = min;
+  for (auto v_it = mesh.vertices_begin(); v_it != mesh.vertices_end(); v_it++) {
+    auto pt = mesh.point(*v_it);
+    min.minimize(pt);
+    max.maximize(pt);
+  }
+
+  return (min + max) / 2;
+}
+
+inline void translate_mesh(Mesh &mesh, const OpenMesh::Vec3f &t) {
+  for (auto v_it = mesh.vertices_begin(); v_it != mesh.vertices_end(); v_it++) {
+    mesh.set_point(*v_it, mesh.point(*v_it) + t); 
+  }
+}
 
 template <typename F, typename V>
 void execute_as_async(F &&func, V &&view) {
@@ -190,7 +212,7 @@ Mesh deform_trans(const Mesh &s0, const Mesh &s1, const Mesh &t0) {
     A.setFromTriplets(A_items.begin(), A_items.end());
   }
 
-  auto ATA = A.transpose() * A;
+  const auto ATA = A.transpose() * A;
 
   Eigen::SparseLU<SpMat> solver;
   solver.analyzePattern(ATA);
@@ -200,7 +222,7 @@ Mesh deform_trans(const Mesh &s0, const Mesh &s1, const Mesh &t0) {
     throw std::runtime_error("Singular matrix");
   }
 
-  auto t1_vertex_pos = [&]() {
+  const auto t1_vertex_pos = [&]() {
     TimedScope scope{"Solving target vertices"};
 
     MatX res = solver.solve(A.transpose() * S.transpose().reshaped())
@@ -211,12 +233,18 @@ Mesh deform_trans(const Mesh &s0, const Mesh &s1, const Mesh &t0) {
     return res;
   }();
 
+  
   Mesh t1{t0};
-  auto t1_vertices = t1.vertices();
+  const auto t1_vertices = t1.vertices();
   for (const auto &[i, vh] : sv::enumerate(t1_vertices)) {
     const auto &pos = t1_vertex_pos.col(i);
     t1.set_point(vh, {pos(0), pos(1), pos(2)});
   }
+
+  const auto cs0 = get_mesh_center(s0), cs1 = get_mesh_center(s1);
+  const auto ct0 = get_mesh_center(t0), ct1 = get_mesh_center(t1);
+  translate_mesh(t1, ct0 - ct1 + cs1 - cs0);
+
   return t1;
 }
 
